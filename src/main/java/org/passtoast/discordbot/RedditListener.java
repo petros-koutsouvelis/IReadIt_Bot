@@ -8,15 +8,21 @@ import net.dv8tion.jda.api.hooks.ListenerAdapter;
 import net.dv8tion.jda.api.utils.FileUpload;
 
 import java.io.ByteArrayInputStream;
+import java.io.IOException;
 import java.io.InputStream;
 import java.net.URI;
+import java.net.URLEncoder;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
+import java.util.Base64;
+import java.util.Map;
 
 public class RedditListener extends ListenerAdapter {
 
     private static final long MAX_UPLOAD = 8L * 1024 * 1024; // 8 MiB
+
     public void onMessageReceived(MessageReceivedEvent event){
         // If the chat message is made by another bot, return
         if (event.getAuthor().isBot()) return;
@@ -53,12 +59,18 @@ public class RedditListener extends ListenerAdapter {
                 jsonUrl += ".json";
             }
 
+            jsonUrl = jsonUrl.replaceFirst("^https?://(www\\.)?reddit\\.com", "https://oauth.reddit.com");
+
             // Fetch the JSON
             HttpClient client = HttpClient.newHttpClient();
+            String bearer = getRedditBearer(client);
             HttpRequest request = HttpRequest.newBuilder()
                     .uri(URI.create(jsonUrl))
                     .header("User-Agent", "java:org.passtoast.discordbot:v1.0")
+                    .header("Authorization", "Bearer " + bearer)
                     .build();
+
+
 
             HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
             if (response.statusCode() != 200) {
@@ -91,19 +103,6 @@ public class RedditListener extends ListenerAdapter {
                 // Why think hard when other done trick?
                 dest = "https://rxddit.com" + postData.get("permalink").getAsString();
                 return dest;
-//                JsonObject media = null;
-//
-//                if (postData.has("media") && postData.get("media").isJsonObject()) {
-//                    media = postData.getAsJsonObject("media");
-//                } else if (postData.has("secure_media") && postData.get("secure_media").isJsonObject()) {
-//                    media = postData.getAsJsonObject("secure_media");
-//                }
-//
-//                if (media != null && media.has("reddit_video")) {
-//                    return media.getAsJsonObject("reddit_video").getAsString();
-//                } else {
-//                    return null;
-//                }
             }
 
             // Try the common image fields
@@ -128,59 +127,43 @@ public class RedditListener extends ListenerAdapter {
         }
     }
 
-    private void handleVideo(MessageReceivedEvent event, String fullUrl) {
-        HttpClient client = HttpClient.newBuilder()
-                .followRedirects(HttpClient.Redirect.NORMAL)
+    private String getRedditBearer(HttpClient client) throws IOException, InterruptedException {
+        String clientId = System.getenv("REDDIT_CLIENT_ID");
+        String clientSecret = System.getenv("REDDIT_CLIENT_SECRET");
+        String username = System.getenv("REDDIT_USERNAME");
+        String password = System.getenv("REDDIT_PASSWORD");
+
+        String creds = Base64.getEncoder()
+                .encodeToString((clientId + ":" + clientSecret).getBytes(StandardCharsets.UTF_8));
+
+        Map<String,String> form = Map.of(
+                "grant_type", "password",
+                "username",   username,
+                "password",   password
+        );
+
+        HttpRequest req = HttpRequest.newBuilder()
+                .uri(URI.create("https://www.reddit.com/api/v1/access_token"))
+                .header("User-Agent", "java:org.passtoast.discordbot:v1.0")
+                .header("Authorization", "Basic " + creds)
+                .POST(formDataPublisher(form))
                 .build();
 
-        long size = getContentLength(fullUrl,client);
-        if (size > 0 && size <= MAX_UPLOAD) {
-            try {
-                HttpResponse<byte[]> videoResp = client.send(
-                        HttpRequest.newBuilder()
-                                .uri(URI.create(fullUrl))
-                                .header("User-Agent", "java:org.passtoast.discordbot:v1.0")
-                                .build(),
-                        HttpResponse.BodyHandlers.ofByteArray()
-                );
-                InputStream in = new ByteArrayInputStream(videoResp.body());
-                event.getChannel().sendMessage("Uploading video...").queue();
-                event.getChannel()
-                        .sendFiles(FileUpload.fromData(in, "reddit_video.mp4"))
-                        .queue(
-                                null,
-                                error->{
-                                    System.err.println("Upload failed:");
-                                    //noinspection CallToPrintStackTrace
-                                    error.printStackTrace();
-                                }
-                        );
-                return;
-            } catch (Exception ex) {
-                //noinspection CallToPrintStackTrace
-                ex.printStackTrace();
-            }
-        }else {
-            event.getChannel().sendMessage("Full video too big (" + size + " bytes)").queue();
-        }
+        HttpResponse<String> resp = client.send(req, HttpResponse.BodyHandlers.ofString());
+        JsonObject obj = JsonParser.parseString(resp.body()).getAsJsonObject();
+        return obj.get("access_token").getAsString();
     }
 
-    private long getContentLength(String url, HttpClient client) {
-        try {
-            HttpRequest head = HttpRequest.newBuilder()
-                    .uri(URI.create(url))
-                    .header("User-Agent", "java:org.passtoast.discordbot:v1.0")
-                    .method("HEAD", HttpRequest.BodyPublishers.noBody())
-                    .build();
-            HttpResponse<Void> resp = client.send(head, HttpResponse.BodyHandlers.discarding());
-            return resp.headers()
-                    .firstValue("Content-Length")
-                    .map(Long::parseLong)
-                    .orElse(-1L);
-        } catch (Exception ex) {
-            //noinspection CallToPrintStackTrace
-            ex.printStackTrace();
-            return -1L;
+    public static HttpRequest.BodyPublisher formDataPublisher(Map<String,String> data) {
+        var builder = new StringBuilder();
+        for (var entry : data.entrySet()) {
+            if (builder.length() > 0) {
+                builder.append("&");
+            }
+            builder.append(URLEncoder.encode(entry.getKey(), StandardCharsets.UTF_8))
+                    .append("=")
+                    .append(URLEncoder.encode(entry.getValue(), StandardCharsets.UTF_8));
         }
+        return HttpRequest.BodyPublishers.ofString(builder.toString());
     }
 }
