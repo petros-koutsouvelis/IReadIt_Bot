@@ -4,6 +4,7 @@ plugins {
     id("com.github.johnrengelman.shadow") version "8.1.1" // use a working version
 }
 
+application.mainClass = "org.passtoast.discordbot.Main"
 group = "org.passtoast.discordbot.Bot"
 version = "1.0"
 
