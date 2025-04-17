@@ -1,5 +1,5 @@
 # 1) Build stage: compile & create fat JAR with Shadow
-FROM gradle:7.5.1-jdk17 AS builder
+FROM gradle:8-jdk17 AS builder
 WORKDIR /home/gradle/project
 
 # Copy everything and build
