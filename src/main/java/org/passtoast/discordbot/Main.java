@@ -4,8 +4,6 @@ import net.dv8tion.jda.api.JDABuilder;
 import net.dv8tion.jda.api.requests.GatewayIntent;
 import net.dv8tion.jda.api.utils.MemberCachePolicy;
 
-import javax.security.auth.login.LoginException;
-
 public class Main {
     public static void main(String[] args) {
         String token = System.getenv("DISCORD_TOKEN");
@@ -26,7 +24,7 @@ public class Main {
                 .setMemberCachePolicy(MemberCachePolicy.NONE)
                 .addEventListeners(new RedditListener())
                 .build();
-        }catch(LoginException ex){
+        }catch(Exception ex){
             ex.printStackTrace();
         }
     }
